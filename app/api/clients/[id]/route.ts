@@ -6,7 +6,7 @@ import { canView } from '@/lib/permissions'
 // GET /api/clients/:id - Get client details
 export async function GET(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
         const session = await auth()
@@ -18,7 +18,7 @@ export async function GET(
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
         }
 
-        const { id } = params
+        const { id } = await params
 
         // Check client access for client users
         if (session.user.clientId && session.user.clientId !== id) {

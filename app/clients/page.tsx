@@ -41,11 +41,11 @@ export default async function ClientsPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {clients.map((client) => {
-                    const activeProjects = client.projects.filter(p => p.status === 'IN_PROGRESS').length
-                    const totalServices = client.projects.reduce((sum, p) => sum + p.services.length, 0)
+                {clients.map((client: any) => {
+                    const activeProjects = client.projects.filter((p: any) => p.status === 'IN_PROGRESS').length
+                    const totalServices = client.projects.reduce((sum: number, p: any) => sum + p.services.length, 0)
                     const completedServices = client.projects.reduce(
-                        (sum, p) => sum + p.services.filter(s => s.status === 'COMPLETED').length,
+                        (sum: number, p: any) => sum + p.services.filter((s: any) => s.status === 'COMPLETED').length,
                         0
                     )
 

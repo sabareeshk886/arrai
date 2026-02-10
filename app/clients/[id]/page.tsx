@@ -6,11 +6,12 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import { Building2, Mail, Phone, MapPin, FolderKanban, CheckCircle2 } from 'lucide-react'
 
-export default async function ClientDetailPage({ params }: { params: { id: string } }) {
+export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const session = await auth()
+    const { id } = await params
 
     const client = await prisma.client.findUnique({
-        where: { id: params.id },
+        where: { id },
         include: {
             projects: {
                 include: {
@@ -31,9 +32,9 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
         notFound()
     }
 
-    const totalServices = client.projects.reduce((sum, p) => sum + p.services.length, 0)
+    const totalServices = client.projects.reduce((sum: number, p: any) => sum + p.services.length, 0)
     const completedServices = client.projects.reduce(
-        (sum, p) => sum + p.services.filter(s => s.status === 'COMPLETED').length,
+        (sum: number, p: any) => sum + p.services.filter((s: any) => s.status === 'COMPLETED').length,
         0
     )
     const progress = totalServices > 0 ? Math.round((completedServices / totalServices) * 100) : 0
@@ -135,7 +136,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                 <CardContent>
                     {client.projects.length > 0 ? (
                         <div className="space-y-4">
-                            {client.projects.map((project) => (
+                            {client.projects.map((project: any) => (
                                 <div
                                     key={project.id}
                                     className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
@@ -154,7 +155,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                                                 <div className="flex items-center gap-2 text-sm text-gray-600">
                                                     <CheckCircle2 className="h-4 w-4" />
                                                     <span>
-                                                        {project.services.filter(s => s.status === 'COMPLETED').length} completed
+                                                        {project.services.filter((s: any) => s.status === 'COMPLETED').length} completed
                                                     </span>
                                                 </div>
                                             </div>
