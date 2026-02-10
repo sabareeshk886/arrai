@@ -1,0 +1,524 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// AUTHENTICATION & USER MANAGEMENT
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  password      String?
+  name          String?
+  avatar        String?
+  role          UserRole  @default(TEAM_MEMBER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  accounts         Account[]
+  sessions         Session[]
+  assignedTasks    Task[]            @relation("AssignedTasks")
+  createdTasks     Task[]            @relation("CreatedTasks")
+  comments         Comment[]
+  activityLogs     ActivityLog[]
+  clientAccess     ClientUserAccess?
+  notifications    Notification[]
+  assignedServices ServiceAssignment[]
+
+  @@index([email])
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  TEAM_MEMBER
+  CLIENT
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Links Client users to their Client entity for data isolation
+model ClientUserAccess {
+  id       String @id @default(cuid())
+  userId   String @unique
+  clientId String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+}
+
+// ============================================
+// CLIENT & PROJECT HIERARCHY
+// ============================================
+
+model Client {
+  id             String         @id @default(cuid())
+  companyName    String
+  contactEmail   String
+  contactPhone   String?
+  industry       String?
+  status         ClientStatus   @default(ACTIVE)
+  assignedTeam   String[] // Array of user IDs
+  billingAddress String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  // Relations
+  projects            Project[]
+  onboardingChecklist OnboardingChecklist?
+  invoices            Invoice[]
+  paymentPlan         PaymentPlan?
+  clientUsers         ClientUserAccess[]
+  activityLogs        ActivityLog[]
+  driveFolder         DriveFolder?
+
+  @@index([status])
+  @@index([companyName])
+}
+
+enum ClientStatus {
+  ONBOARDING
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  clientId    String
+  name        String
+  description String?
+  status      ProjectStatus @default(PLANNING)
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relations
+  client         Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  services       Service[]
+  milestones     Milestone[]
+  changeRequests ChangeRequest[]
+  activityLogs   ActivityLog[]
+  driveFolder    DriveFolder?
+
+  @@index([clientId])
+  @@index([status])
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+model Service {
+  id          String        @id @default(cuid())
+  projectId   String
+  type        ServiceType
+  name        String
+  description String?
+  status      ServiceStatus @default(TODO)
+  startDate   DateTime?
+  endDate     DateTime?
+  scopeJson   Json? // Structured scope definition
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relations
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks          Task[]
+  assignments    ServiceAssignment[]
+  milestones     Milestone[]
+  files          File[]
+  comments       Comment[]
+  activityLogs   ActivityLog[]
+  driveFolder    DriveFolder?
+
+  @@index([projectId])
+  @@index([status])
+  @@index([type])
+}
+
+enum ServiceType {
+  BRANDING
+  WEBSITE
+  APP
+  VIDEO
+  CONTENT
+  CRM
+  OTHER
+}
+
+enum ServiceStatus {
+  TODO
+  IN_PROGRESS
+  WAITING
+  APPROVED
+  COMPLETED
+}
+
+model ServiceAssignment {
+  id        String   @id @default(cuid())
+  serviceId String
+  userId    String
+  role      String? // e.g., "Lead Designer", "Developer"
+  createdAt DateTime @default(now())
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, userId])
+  @@index([serviceId])
+  @@index([userId])
+}
+
+// ============================================
+// TASK & WORKFLOW MANAGEMENT
+// ============================================
+
+model Task {
+  id          String       @id @default(cuid())
+  serviceId   String
+  title       String
+  description String?
+  priority    TaskPriority @default(MEDIUM)
+  status      TaskStatus   @default(TODO)
+  visibility  Visibility   @default(INTERNAL) // Hide from clients by default
+  assignedTo  String?
+  createdBy   String
+  dueDate     DateTime?
+  completedAt DateTime?
+  dependencies String[] // Task IDs this task depends on
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  service      Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  assignedUser User?         @relation("AssignedTasks", fields: [assignedTo], references: [id])
+  creator      User          @relation("CreatedTasks", fields: [createdBy], references: [id])
+  comments     Comment[]
+  activityLogs ActivityLog[]
+
+  @@index([serviceId])
+  @@index([assignedTo])
+  @@index([status])
+  @@index([visibility])
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  REVIEW
+  COMPLETED
+}
+
+enum Visibility {
+  INTERNAL
+  CLIENT_VISIBLE
+}
+
+// ============================================
+// COMMUNICATION & FILES
+// ============================================
+
+model Comment {
+  id         String     @id @default(cuid())
+  entityType EntityType
+  entityId   String // Project, Service, File, or Task ID
+  userId     String
+  content    String     @db.Text
+  isInternal Boolean    @default(false) // Hide from clients
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  // Relations
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  service Service? @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  task    Task?    @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([isInternal])
+}
+
+enum EntityType {
+  PROJECT
+  SERVICE
+  TASK
+  FILE
+}
+
+model File {
+  id           String     @id @default(cuid())
+  entityType   EntityType
+  entityId     String
+  driveFileId  String     @unique
+  name         String
+  mimeType     String?
+  url          String
+  thumbnailUrl String?
+  size         Int?
+  version      Int        @default(1)
+  uploadedBy   String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // Relations
+  service Service? @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([entityType, entityId])
+  @@index([driveFileId])
+}
+
+model DriveFolder {
+  id        String   @id @default(cuid())
+  folderId  String   @unique
+  name      String
+  entityType EntityType
+  entityId  String   @unique
+  url       String
+  createdAt DateTime @default(now())
+
+  // Relations
+  client  Client?  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  service Service? @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([entityType, entityId])
+}
+
+// ============================================
+// ONBOARDING & MILESTONES
+// ============================================
+
+model OnboardingChecklist {
+  id           String   @id @default(cuid())
+  clientId     String   @unique
+  checklistJson Json // Flexible checklist items with completion status
+  status       ChecklistStatus @default(IN_PROGRESS)
+  completedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+enum ChecklistStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+model Milestone {
+  id            String          @id @default(cuid())
+  projectId     String?
+  serviceId     String?
+  name          String
+  description   String?
+  dueDate       DateTime
+  status        MilestoneStatus @default(PENDING)
+  paymentLinked Boolean         @default(false)
+  completedAt   DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  // Relations
+  project  Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  service  Service?  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  invoices Invoice[]
+
+  @@index([projectId])
+  @@index([serviceId])
+  @@index([status])
+}
+
+enum MilestoneStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// ============================================
+// CHANGE REQUESTS
+// ============================================
+
+model ChangeRequest {
+  id          String              @id @default(cuid())
+  projectId   String
+  title       String
+  description String              @db.Text
+  impactJson  Json // Timeline, cost, resource impact
+  status      ChangeRequestStatus @default(PENDING)
+  requestedBy String
+  approvedBy  String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([status])
+}
+
+enum ChangeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  IMPLEMENTED
+}
+
+// ============================================
+// FINANCE & BILLING
+// ============================================
+
+model PaymentPlan {
+  id       String          @id @default(cuid())
+  clientId String          @unique
+  type     PaymentPlanType
+  termsJson Json // Flexible payment terms
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+enum PaymentPlanType {
+  FIXED_PRICE
+  MILESTONE_BASED
+  RETAINER
+}
+
+model Invoice {
+  id          String        @id @default(cuid())
+  clientId    String
+  milestoneId String?
+  amount      Float
+  currency    String        @default("INR")
+  status      InvoiceStatus @default(PENDING)
+  dueDate     DateTime
+  paidDate    DateTime?
+  invoiceUrl  String?
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  client    Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  milestone Milestone? @relation(fields: [milestoneId], references: [id])
+
+  @@index([clientId])
+  @@index([status])
+  @@index([milestoneId])
+}
+
+enum InvoiceStatus {
+  PENDING
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+// ============================================
+// NOTIFICATIONS & ACTIVITY
+// ============================================
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  entityType EntityType?
+  entityId  String?
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_COMPLETED
+  STATUS_CHANGED
+  COMMENT_ADDED
+  APPROVAL_REQUIRED
+  MILESTONE_DUE
+  PAYMENT_RECEIVED
+  CHANGE_REQUEST
+}
+
+model ActivityLog {
+  id         String     @id @default(cuid())
+  userId     String
+  action     String
+  entityType EntityType
+  entityId   String
+  metadataJson Json? // Additional context
+  createdAt  DateTime   @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client  Client?  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  service Service? @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  task    Task?    @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
